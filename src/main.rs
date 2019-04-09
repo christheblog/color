@@ -39,36 +39,46 @@ fn main() {
     if args.is_present("regex") {
         let stdin = io::stdin();
         let compiled: Regex = Regex::new(&target).unwrap();
-        highlight_regex(compiled, &col, stdin.lock()).unwrap();
+        highlight_regex_stream(compiled, &col, stdin.lock()).unwrap();
     } else {
         let stdin = io::stdin();
-        highlight(&target, &col, stdin.lock()).unwrap();
+        highlight_stream(&target, &col, stdin.lock()).unwrap();
     }
 }
 
-
-fn highlight<R>(target: &str, color: &Color, reader: R) -> io::Result<()>
+// Highlight a string in a stream of lines
+fn highlight_stream<R>(target: &str, color: &Color, reader: R) -> io::Result<()>
 where R: BufRead {
+    for line_result in reader.lines() {
+        let line = line_result?;
+        println!("{}", highlight(target, color, &line));
+    }
+    Ok(())
+}
+
+fn highlight(target: &str, color: &Color, line: &str) -> String {
     let replacement = &format!["{}{}{}", color.code(), target, Color::Sane.code()];
+    format!("{}", line.replace(target, replacement))
+}
+
+// Highlight a rex exp in a stream of lines
+fn highlight_regex_stream<R>(re: Regex, color: &Color, reader: R) -> io::Result<()>
+where R: BufRead {
     for line_result in reader.lines() {
         let line = line_result?;
-        println!("{}", line.replace(target, replacement));
+        println!("{}", highlight_regex(&re, color, &line));
     }
     Ok(())
 }
 
-fn highlight_regex<R>(re: Regex, color: &Color, reader: R) -> io::Result<()>
-where R: BufRead {
-    for line_result in reader.lines() {
-        let line = line_result?;
-        let replaced = re.replace_all(&line,
-            |cap: &Captures| {
-                format!["{}{}{}", color.code(), cap.get(0).map(|s| s.as_str()).unwrap(), Color::Sane.code()]
-            });
-        println!("{}", replaced);
-    }
-    Ok(())
+fn highlight_regex(re: &Regex, color: &Color, line: &str) -> String {
+    let replaced = re.replace_all(line,
+        |cap: &Captures| {
+            format!["{}{}{}", color.code(), cap.get(0).map(|s| s.as_str()).unwrap(), Color::Sane.code()]
+        });
+    format!("{}", replaced)
 }
+
 
 // Read color from the arguments. If not found, returns the default value
 fn get_color(args: &ArgMatches, default_color: Color) -> Color {
@@ -109,5 +119,78 @@ impl Color {
             Color::Cyan => "\u{001B}[36m",
             Color::White => "\u{001B}[37m",
         }
+    }
+}
+
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_highlight_all_colors() {
+        for color in vec![
+            Color::Sane, Color::Black, Color::Red,
+            Color::Green, Color::Yellow, Color::Blue,
+            Color::Magenta, Color::Cyan, Color::White] {
+            assert_eq!(highlight("Hello", &color, "Hello world"),
+                       format!["{}Hello{} world", color.code(), Color::Sane.code()]);
+        }
+    }
+
+    // String search
+
+    #[test]
+    fn test_highlight_begininig() {
+        assert_eq!(highlight("Hello", &Color::Red, "Hello world"),
+                   format!["{}Hello{} world", Color::Red.code(), Color::Sane.code()]);
+    }
+
+    #[test]
+    fn test_highlight_middle() {
+        assert_eq!(highlight("wor", &Color::Red, "Hello world"),
+                   format!["Hello {}wor{}ld", Color::Red.code(), Color::Sane.code()]);
+    }
+
+    #[test]
+    fn test_highlight_end() {
+        assert_eq!(highlight("world", &Color::Red, "Hello world"),
+                   format!["Hello {}world{}", Color::Red.code(), Color::Sane.code()]);
+    }
+
+    #[test]
+    fn test_highlight_not_found() {
+        assert_eq!(highlight("Boom", &Color::Red, "Hello world"), "Hello world");
+    }
+
+
+    // Regexp search
+
+    #[test]
+    fn test_highlight_regex_begininig() {
+        let re: Regex = Regex::new("^[Hh][eE]llo").unwrap();
+        assert_eq!(highlight_regex(&re, &Color::Red, "Hello world"),
+                   format!["{}Hello{} world", Color::Red.code(), Color::Sane.code()]);
+    }
+
+    #[test]
+    fn test_highlight_regex_middle() {
+        let re: Regex = Regex::new("w[oO]r").unwrap();
+        assert_eq!(highlight_regex(&re, &Color::Red, "Hello world"),
+                   format!["Hello {}wor{}ld", Color::Red.code(), Color::Sane.code()]);
+    }
+
+    #[test]
+    fn test_highlight_regex_end() {
+        let re: Regex = Regex::new("world$").unwrap();
+        assert_eq!(highlight_regex(&re, &Color::Red, "Hello world"),
+                   format!["Hello {}world{}", Color::Red.code(), Color::Sane.code()]);
+    }
+
+    #[test]
+    fn test_highlight_regex_not_found() {
+        let re: Regex = Regex::new("Boom").unwrap();
+        assert_eq!(highlight_regex(&re, &Color::Red, "Hello world"), "Hello world");
     }
 }
