@@ -39,19 +39,20 @@ fn main() {
     if args.is_present("regex") {
         let stdin = io::stdin();
         let compiled: Regex = Regex::new(&target).unwrap();
-        highlight_regex_stream(compiled, &col, stdin.lock()).unwrap();
+        highlight_stream_gen(|line| highlight_regex(&compiled, &col, &line), stdin.lock()).unwrap();
     } else {
         let stdin = io::stdin();
-        highlight_stream(&target, &col, stdin.lock()).unwrap();
+        highlight_stream_gen(|line| highlight(target, &col, &line), stdin.lock()).unwrap();
     }
 }
 
-// Highlight a string in a stream of lines
-fn highlight_stream<R>(target: &str, color: &Color, reader: R) -> io::Result<()>
-where R: BufRead {
+// Generically highlight a string in a stream of lines
+fn highlight_stream_gen<F, R>(highlight_fun: F, reader: R) -> io::Result<()>
+    where F: Fn(&String) -> String,
+          R: BufRead {
     for line_result in reader.lines() {
         let line = line_result?;
-        println!("{}", highlight(target, color, &line));
+        println!("{}", highlight_fun(&line));
     }
     Ok(())
 }
@@ -59,16 +60,6 @@ where R: BufRead {
 fn highlight(target: &str, color: &Color, line: &str) -> String {
     let replacement = &format!["{}{}{}", color.code(), target, Color::Sane.code()];
     format!("{}", line.replace(target, replacement))
-}
-
-// Highlight a rex exp in a stream of lines
-fn highlight_regex_stream<R>(re: Regex, color: &Color, reader: R) -> io::Result<()>
-where R: BufRead {
-    for line_result in reader.lines() {
-        let line = line_result?;
-        println!("{}", highlight_regex(&re, color, &line));
-    }
-    Ok(())
 }
 
 fn highlight_regex(re: &Regex, color: &Color, line: &str) -> String {
